@@ -1,0 +1,188 @@
+{
+  "_comment": [
+    "Provider endpoints and per-model routing for run_api_quality.py.",
+    "Every model_key maps to an ordered list of candidates; the runner uses the first",
+    "candidate whose provider has an API key present in the environment.",
+    "MODEL ID STRINGS ARE UNVERIFIED. Providers rename and retire them constantly.",
+    "Run `python run_api_quality.py --check` to resolve every id against each",
+    "provider's /models endpoint before starting a campaign."
+  ],
+  "providers": {
+    "groq": {
+      "base_url": "https://api.groq.com/openai/v1",
+      "env": "GROQ_API_KEY",
+      "rpm": 30,
+      "signup": "https://console.groq.com"
+    },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "env": "OPENROUTER_API_KEY",
+      "rpm": 20,
+      "signup": "https://openrouter.ai/keys"
+    },
+    "nvidia": {
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "env": "NVIDIA_API_KEY",
+      "rpm": 40,
+      "signup": "https://build.nvidia.com"
+    },
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "env": "CEREBRAS_API_KEY",
+      "rpm": 30,
+      "signup": "https://cloud.cerebras.ai"
+    },
+    "mistral": {
+      "base_url": "https://api.mistral.ai/v1",
+      "env": "MISTRAL_API_KEY",
+      "rpm": 60,
+      "signup": "https://console.mistral.ai"
+    },
+    "cohere": {
+      "base_url": "https://api.cohere.ai/compatibility/v1",
+      "env": "COHERE_API_KEY",
+      "rpm": 20,
+      "signup": "https://dashboard.cohere.com/api-keys"
+    },
+    "huggingface": {
+      "base_url": "https://router.huggingface.co/v1",
+      "env": "HF_TOKEN",
+      "rpm": 30,
+      "signup": "https://huggingface.co/settings/tokens"
+    },
+    "together": {
+      "base_url": "https://api.together.xyz/v1",
+      "env": "TOGETHER_API_KEY",
+      "rpm": 60,
+      "signup": "https://api.together.xyz/settings/api-keys"
+    },
+    "fireworks": {
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "env": "FIREWORKS_API_KEY",
+      "rpm": 60,
+      "signup": "https://fireworks.ai/account/api-keys"
+    },
+    "deepinfra": {
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "env": "DEEPINFRA_API_KEY",
+      "rpm": 60,
+      "signup": "https://deepinfra.com/dash/api_keys"
+    },
+    "sambanova": {
+      "base_url": "https://api.sambanova.ai/v1",
+      "env": "SAMBANOVA_API_KEY",
+      "rpm": 30,
+      "signup": "https://cloud.sambanova.ai/apis"
+    }
+  },
+  "models": {
+    "llama-3.3-70b": [
+      {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+      {"provider": "cerebras", "model": "llama-3.3-70b"},
+      {"provider": "nvidia", "model": "meta/llama-3.3-70b-instruct"},
+      {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+      {"provider": "together", "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"}
+    ],
+    "llama-4-scout": [
+      {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
+      {"provider": "nvidia", "model": "meta/llama-4-scout-17b-16e-instruct"},
+      {"provider": "openrouter", "model": "meta-llama/llama-4-scout"}
+    ],
+    "gpt-oss-120b": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "gpt-oss-120b"},
+      {"provider": "nvidia", "model": "openai/gpt-oss-120b"},
+      {"provider": "openrouter", "model": "openai/gpt-oss-120b"}
+    ],
+    "gemma-3-27b": [
+      {"provider": "nvidia", "model": "google/gemma-3-27b-it"},
+      {"provider": "openrouter", "model": "google/gemma-3-27b-it"},
+      {"provider": "deepinfra", "model": "google/gemma-3-27b-it"}
+    ],
+    "phi-4": [
+      {"provider": "nvidia", "model": "microsoft/phi-4"},
+      {"provider": "openrouter", "model": "microsoft/phi-4"},
+      {"provider": "deepinfra", "model": "microsoft/phi-4"},
+      {"provider": "huggingface", "model": "microsoft/phi-4"}
+    ],
+    "nemotron-super-49b": [
+      {"provider": "nvidia", "model": "nvidia/llama-3.3-nemotron-super-49b-v1"},
+      {"provider": "openrouter", "model": "nvidia/llama-3.3-nemotron-super-49b-v1"}
+    ],
+    "nemotron-70b": [
+      {"provider": "nvidia", "model": "nvidia/llama-3.1-nemotron-70b-instruct"},
+      {"provider": "openrouter", "model": "nvidia/llama-3.1-nemotron-70b-instruct"},
+      {"provider": "deepinfra", "model": "nvidia/Llama-3.1-Nemotron-70B-Instruct"}
+    ],
+    "nemotron-mini-4b": [
+      {"provider": "nvidia", "model": "nvidia/nemotron-mini-4b-instruct"}
+    ],
+    "olmo-2-32b": [
+      {"provider": "huggingface", "model": "allenai/OLMo-2-0325-32B-Instruct"}
+    ],
+    "mistral-small-3": [
+      {"provider": "mistral", "model": "mistral-small-latest"},
+      {"provider": "nvidia", "model": "mistralai/mistral-small-24b-instruct"},
+      {"provider": "openrouter", "model": "mistralai/mistral-small-24b-instruct-2501"},
+      {"provider": "together", "model": "mistralai/Mistral-Small-24B-Instruct-2501"}
+    ],
+    "mixtral-8x22b": [
+      {"provider": "mistral", "model": "open-mixtral-8x22b"},
+      {"provider": "openrouter", "model": "mistralai/mixtral-8x22b-instruct"},
+      {"provider": "together", "model": "mistralai/Mixtral-8x22B-Instruct-v0.1"}
+    ],
+    "aya-expanse-32b": [
+      {"provider": "cohere", "model": "c4ai-aya-expanse-32b"},
+      {"provider": "huggingface", "model": "CohereLabs/aya-expanse-32b"}
+    ],
+    "falcon3-10b": [
+      {"provider": "huggingface", "model": "tiiuae/Falcon3-10B-Instruct"}
+    ],
+    "jamba-1.5-mini": [
+      {"provider": "openrouter", "model": "ai21/jamba-1.5-mini"},
+      {"provider": "huggingface", "model": "ai21labs/AI21-Jamba-1.5-Mini"}
+    ],
+    "exaone-4-32b": [
+      {"provider": "huggingface", "model": "LGAI-EXAONE/EXAONE-4.0-32B"}
+    ],
+    "sarvam-m": [
+      {"provider": "huggingface", "model": "sarvamai/sarvam-m"}
+    ],
+    "sea-lion-v3": [
+      {"provider": "huggingface", "model": "aisingapore/Gemma-SEA-LION-v3-9B-IT"}
+    ],
+    "deepseek-v3": [
+      {"provider": "nvidia", "model": "deepseek-ai/deepseek-v3"},
+      {"provider": "openrouter", "model": "deepseek/deepseek-chat"},
+      {"provider": "together", "model": "deepseek-ai/DeepSeek-V3"}
+    ],
+    "deepseek-r1": [
+      {"provider": "nvidia", "model": "deepseek-ai/deepseek-r1"},
+      {"provider": "openrouter", "model": "deepseek/deepseek-r1"},
+      {"provider": "groq", "model": "deepseek-r1-distill-llama-70b"}
+    ],
+    "qwen3-235b-a22b": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct"},
+      {"provider": "nvidia", "model": "qwen/qwen3-235b-a22b"},
+      {"provider": "openrouter", "model": "qwen/qwen3-235b-a22b"}
+    ],
+    "qwen3-32b": [
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "cerebras", "model": "qwen-3-32b"},
+      {"provider": "openrouter", "model": "qwen/qwen3-32b"}
+    ],
+    "glm-4.5": [
+      {"provider": "openrouter", "model": "z-ai/glm-4.5"}
+    ],
+    "kimi-k2": [
+      {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"},
+      {"provider": "openrouter", "model": "moonshotai/kimi-k2"}
+    ],
+    "minimax-m1": [
+      {"provider": "openrouter", "model": "minimax/minimax-m1"}
+    ],
+    "internlm3-8b": [
+      {"provider": "huggingface", "model": "internlm/internlm3-8b-instruct"}
+    ]
+  }
+}

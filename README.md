@@ -25,7 +25,9 @@ pip install openpyxl httpx
 |---|---|
 | `build_workbook.py` | Generates the workbook from scratch. Edit parameters here, never in Excel. **Rebuilding destroys collected data.** |
 | `run_ollama_bench.py` | Speed. Pulls models through Ollama, runs the sweep, appends rows to `Perf_Results` |
-| `run_ollama_quality.py` | Accuracy. Scores models against `prompts/`, appends rows to `Quality_Results` |
+| `run_ollama_quality.py` | Accuracy, locally. Scores models against `prompts/`, appends rows to `Quality_Results` |
+| `run_api_quality.py` | Accuracy, via hosted APIs. Same suites, no GPU needed |
+| `providers.json` | API endpoints, rate limits, and `model_key` to provider routing |
 | `graders.py` | The nine deterministic graders |
 | `prompts/*.jsonl` | The test prompts, one suite per file |
 | `sheet_io.py` | Reads config and models, appends results. Shared by every runner |
@@ -285,6 +287,70 @@ tied, and no amount of decimal places in `score_mean` changes that.
 
 Growing a suite is just appending lines to the relevant `prompts/*.jsonl`. Nothing in the code
 needs to change.
+
+## Testing through hosted APIs instead of the DGX
+
+`run_api_quality.py` runs the same suites against hosted endpoints, so quality
+testing works from any laptop with no GPU.
+
+**Quality only.** Scores transfer because the weights are the same. Latency and throughput do
+not: on a shared free tier they measure the provider's queue depth at that moment. Nothing
+timing-related is written, and every row is stamped `serving_stack=API:<provider>` so it can
+never be mistaken for a DGX measurement.
+
+### Getting keys
+
+Four keys cover all 25 models:
+
+| Provider | Sign up at | Covers |
+|---|---|---|
+| Groq | console.groq.com | Llama 3.3, Llama 4 Scout, gpt-oss, Qwen3, Kimi K2 |
+| OpenRouter | openrouter.ai/keys | 17 of 25 on its own, the broadest single key |
+| NVIDIA | build.nvidia.com | All three Nemotron models, incl. the Super-49B that Ollama cannot run |
+| Hugging Face | huggingface.co/settings/tokens | The 7 long-tail models nothing else hosts: OLMo, Falcon, Aya, EXAONE, Sarvam-M, SEA-LION, InternLM |
+
+Copy the template and paste each key into it. `.env` is gitignored:
+
+```bash
+cp .env.example .env
+```
+
+Never commit a key, and never paste one into a chat window. The runner reads them from the
+environment, never logs them, and never writes them to the workbook.
+
+### Running it
+
+```bash
+python run_api_quality.py --list-providers
+```
+
+```bash
+python run_api_quality.py --check
+```
+
+`--check` calls each provider's `/models` endpoint and reports whether every configured model id
+actually exists, suggesting near matches where it does not. The ids in `providers.json` are
+unverified starting points, because providers rename and retire them constantly. Run this before
+every campaign.
+
+```bash
+python run_api_quality.py --dry-run --exclude-country China
+```
+
+```bash
+python run_api_quality.py --exclude-country China --suites reasoning,knowledge,extraction
+```
+
+### Routing
+
+`providers.json` maps each `model_key` to an ordered list of candidates. The runner takes the
+first one whose provider has a key, so adding a key silently improves coverage and removing one
+degrades gracefully. `--prefer groq,nvidia` overrides the order when you want a specific host.
+
+Rate limiting is per provider, from the `rpm` field. Free tiers are strict, and an unthrottled
+run returns a wall of 429s that looks exactly like a model scoring zero. The client retries 429s
+and 5xx with exponential backoff, honours `Retry-After`, and drops `seed` or `top_p` and retries
+if a provider rejects them. A 401 raises instead of being recorded as a bad score.
 
 ## Command reference
 
