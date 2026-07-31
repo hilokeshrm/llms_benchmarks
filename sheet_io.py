@@ -61,8 +61,10 @@ def load_models(path, priority=None, only=None, require_ollama_tag=False,
         for raw in rows[1:]:
             rec = dict(zip(headers, raw))
             key = rec.get("model_key")
+            # Data rows are contiguous; stop at the first gap so the explanatory
+            # note below the table is never mistaken for a model.
             if not key or not str(key).strip():
-                continue
+                break
             rec["ollama_tag"] = (rec.get("ollama_tag") or "").strip()
             if only and key not in only:
                 continue
