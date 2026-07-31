@@ -193,22 +193,48 @@ def load_config(path=CONFIG):
     return providers, cfg["models"]
 
 
-def resolve(model_keys, providers, routes, prefer=None):
-    """model_key -> (Provider, model_id). First candidate with a key present."""
+async def fetch_catalogues(providers):
+    """{provider_name: set_of_model_ids} for providers with a key. A provider
+    whose /models call fails maps to None, meaning 'cannot verify'."""
+    cats = {}
+    async with httpx.AsyncClient() as client:
+        for name, p in providers.items():
+            if p.has_key:
+                ids, _ = await p.list_models(client)
+                cats[name] = ids
+    return cats
+
+
+def resolve(model_keys, providers, routes, prefer=None, catalogues=None):
+    """model_key -> (Provider, model_id).
+
+    Takes the first candidate whose provider has a key AND, when the provider's
+    catalogue could be fetched, actually lists that model id. Without the
+    catalogue check a stale id routes happily and every request 404s, which looks
+    identical to a model scoring zero.
+    """
     picked, unroutable = {}, []
     for key in model_keys:
         cands = routes.get(key, [])
         if prefer:
             cands = sorted(cands, key=lambda c: prefer.index(c["provider"])
                            if c["provider"] in prefer else len(prefer))
-        for c in cands:
-            p = providers.get(c["provider"])
-            if p and p.has_key:
-                picked[key] = (p, c["model"])
-                break
+        keyed = [c for c in cands if providers.get(c["provider"])
+                 and providers[c["provider"]].has_key]
+        for c in keyed:
+            cat = (catalogues or {}).get(c["provider"])
+            if cat is not None and c["model"] not in cat:
+                continue
+            picked[key] = (providers[c["provider"]], c["model"])
+            break
         else:
-            reason = "no route in providers.json" if not cands else \
-                     "no key for " + "/".join(sorted({c["provider"] for c in cands}))
+            if not cands:
+                reason = "no route in providers.json"
+            elif not keyed:
+                reason = "no key for " + "/".join(sorted({c["provider"] for c in cands}))
+            else:
+                reason = ("model id not in any catalogue: " +
+                          ", ".join(f"{c['provider']}:{c['model']}" for c in keyed))
             unroutable.append((key, reason))
     return picked, unroutable
 
@@ -321,6 +347,8 @@ def main():
     ap.add_argument("--needle", action="store_true")
     ap.add_argument("--needle-lengths", default="4000,16000")
     ap.add_argument("--needle-depths", default="0.1,0.5,0.9")
+    ap.add_argument("--no-verify", action="store_true",
+                    help="skip the catalogue check and trust providers.json as written")
     ap.add_argument("--list-providers", action="store_true")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -360,7 +388,8 @@ def main():
         return 0
 
     prefer = parse_list(args.prefer) or None
-    picked, unroutable = resolve(keys, providers, routes, prefer)
+    catalogues = None if args.no_verify else asyncio.run(fetch_catalogues(providers))
+    picked, unroutable = resolve(keys, providers, routes, prefer, catalogues)
     if not picked:
         print("No model could be routed. Add a key, then re-run --list-providers.")
         for k, why in unroutable:
