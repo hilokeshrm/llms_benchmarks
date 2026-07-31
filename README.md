@@ -300,14 +300,16 @@ never be mistaken for a DGX measurement.
 
 ### Getting keys
 
-Four keys cover all 25 models:
+Three keys cover all 25 models:
 
-| Provider | Sign up at | Covers |
-|---|---|---|
-| Groq | console.groq.com | Llama 3.3, Llama 4 Scout, gpt-oss, Qwen3, Kimi K2 |
-| OpenRouter | openrouter.ai/keys | 17 of 25 on its own, the broadest single key |
-| NVIDIA | build.nvidia.com | All three Nemotron models, incl. the Super-49B that Ollama cannot run |
-| Hugging Face | huggingface.co/settings/tokens | The 7 long-tail models nothing else hosts: OLMo, Falcon, Aya, EXAONE, Sarvam-M, SEA-LION, InternLM |
+| Provider | Env var | Models | Sole source for |
+|---|---|---|---|
+| OpenRouter | `OPENROUTER_API_KEY` | 17 | glm-4.5, minimax-m1 |
+| Hugging Face | `HF_TOKEN` | 9 | olmo-2-32b, falcon3-10b, exaone-4-32b, sarvam-m, sea-lion-v3, internlm3-8b |
+| NVIDIA | `NVIDIA_API_KEY` | 12 | nemotron-mini-4b, and the only host of nemotron-super-49b |
+
+Groq (`GROQ_API_KEY`) adds no coverage but is much faster with generous free limits, so it is
+worth adding for a full sweep. Everything else in `.env.example` is an optional fallback.
 
 Copy the template and paste each key into it. `.env` is gitignored:
 
