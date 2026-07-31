@@ -1,0 +1,13 @@
+# Raw benchmark output - regenerable, and large after a full sweep
+results/
+
+# Excel / LibreOffice lock files
+~$*.xlsx
+.~lock.*#
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
