@@ -44,8 +44,14 @@ def load_hardware_env(path):
         wb.close()
 
 
-def load_models(path, priority=None, only=None, require_ollama_tag=False):
-    """Models sheet -> list of dicts, filtered."""
+def load_models(path, priority=None, only=None, require_ollama_tag=False,
+                countries=None, exclude_countries=None, blocs=None):
+    """Models sheet -> list of dicts, filtered.
+
+    countries / exclude_countries / blocs match the Models sheet columns
+    case-insensitively, so `exclude_countries={'china'}` drops the Chinese labs
+    without touching the registry itself.
+    """
     wb = load_workbook(path, data_only=True, read_only=True)
     try:
         ws = wb["Models"]
@@ -61,6 +67,14 @@ def load_models(path, priority=None, only=None, require_ollama_tag=False):
             if only and key not in only:
                 continue
             if priority and str(rec.get("priority") or "").upper() not in priority:
+                continue
+            country = str(rec.get("country") or "").strip().lower()
+            bloc = str(rec.get("bloc") or "").strip().lower()
+            if countries and country not in {c.lower() for c in countries}:
+                continue
+            if exclude_countries and country in {c.lower() for c in exclude_countries}:
+                continue
+            if blocs and bloc not in {b.lower() for b in blocs}:
                 continue
             if require_ollama_tag and not rec["ollama_tag"]:
                 continue

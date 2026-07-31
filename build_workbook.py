@@ -218,7 +218,7 @@ P = [
     ("Cost", "Break-even vs API", "-", "-", "Compare cost_per_1m_out_usd against the API price of the closest closed model.", "Manual comparison.", "Summary", "Optional"),
 
     ("Quality", "Task accuracy", "score_mean", "varies", "Primary metric for the task suite (accuracy, pass@1, F1, ...).", "lm-eval-harness / OpenCompass / custom.", "Quality_Results", "Core"),
-    ("Quality", "Score dispersion", "score_stdev / score_ci95", "same", "Spread across repeats. Without it a 1-point gap means nothing.", "Repeat runs >= 5.", "Quality_Results", "Core"),
+    ("Quality", "Score dispersion", "score_stdev / score_ci95_halfwidth", "same", "Stdev over every graded item (not over repeats). CI uses sqrt(n_samples x repeats). At n=100 and a score near 70%, the 95% CI is about +/-9 points - two models inside that band are tied.", "Runner computes it; grow n_samples to narrow it.", "Quality_Results", "Core"),
     ("Quality", "pass@1", "pass_at_1", "%", "Coding: fraction solved on the first attempt.", "HumanEval+ / MBPP+ / SWE-bench.", "Quality_Results", "Core"),
     ("Quality", "Instruction compliance", "instruction_compliance_pct", "%", "Verifiable-constraint adherence.", "IFEval-style checker.", "Quality_Results", "Core"),
     ("Quality", "Valid JSON rate", "valid_json_rate_pct", "%", "Parses and validates against the schema.", "Schema validator.", "Quality_Results", "Core"),
@@ -626,7 +626,9 @@ QCOLS = QIN + QDER + ["notes"]
 qc = header_row(ws, QCOLS, row=1)
 QLAST = 300
 QFORM = {
-    "score_ci95_halfwidth": "=IFERROR(1.96*{score_stdev}{r}/SQRT({repeats}{r}),\"\")",
+    # Standard error over every graded item, not over repeats. With greedy decoding
+    # and deterministic graders, repeat-variance is ~0 and would imply false precision.
+    "score_ci95_halfwidth": "=IFERROR(1.96*{score_stdev}{r}/SQRT({n_samples}{r}*{repeats}{r}),\"\")",
     "fp16_baseline_score": ("=IFERROR(AVERAGEIFS({score_mean}$2:{score_mean}$" + str(QLAST) +
                             ",{model_key}$2:{model_key}$" + str(QLAST) + ",{model_key}{r}"
                             ",{task_name}$2:{task_name}$" + str(QLAST) + ",{task_name}{r}"
@@ -640,7 +642,7 @@ EXAMPLE_Q = {
     "quantization": "BF16", "serving_stack": "vLLM", "task_suite": "MMLU-Pro", "task_name": "mmlu_pro_all",
     "capability": "knowledge", "language": "en", "n_samples": 1000, "repeats": 5, "temperature": 0,
     "top_p": 1, "max_tokens": 1024, "seed": 42, "metric_name": "accuracy", "score_mean": 0.712,
-    "score_stdev": 0.008, "score_min": 0.701, "score_max": 0.722, "pass_at_1": None,
+    "score_stdev": 0.453, "score_min": 0.701, "score_max": 0.722, "pass_at_1": None,
     "instruction_compliance_pct": 94.2, "valid_json_rate_pct": 99.1, "refusal_rate_pct": 0.4,
     "hallucination_rate_pct": 6.8, "avg_output_tokens": 214, "avg_latency_s": 4.9,
     "judge_model": "n/a (exact match)", "harness": "lm-eval-harness 0.4.x",

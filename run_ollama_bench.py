@@ -280,11 +280,14 @@ class Ollama:
             return "unknown"
 
     # -- the measured request ------------------------------------------------
-    async def generate(self, client, tag, prompt, options, keep_alive="30m"):
+    async def generate(self, client, tag, prompt, options, keep_alive="30m", collect=False):
+        """collect=True accumulates the response text. Left off for perf runs so
+        string building never shows up in the token timings."""
         payload = {"model": tag, "prompt": prompt, "stream": True,
                    "options": options, "keep_alive": keep_alive}
         rec = {"ok": False, "ttft_s": None, "e2e_s": None, "in_tokens": 0,
-               "out_tokens": 0, "itls": [], "load_s": None, "error": None}
+               "out_tokens": 0, "itls": [], "load_s": None, "error": None, "text": ""}
+        chunks = []
         t0 = time.perf_counter()
         prev = None
         try:
@@ -310,6 +313,8 @@ class Ollama:
                         elif prev is not None:
                             rec["itls"].append(now - prev)
                         prev = now
+                        if collect:
+                            chunks.append(obj["response"])
                     if obj.get("done"):
                         rec["e2e_s"] = now - t0
                         rec["in_tokens"] = obj.get("prompt_eval_count") or 0
@@ -321,6 +326,8 @@ class Ollama:
             rec["error"] = f"{type(e).__name__}: {e}"
         if rec["e2e_s"] is None:
             rec["e2e_s"] = time.perf_counter() - t0
+        if collect:
+            rec["text"] = "".join(chunks)
         return rec
 
 
@@ -564,6 +571,9 @@ def main():
     ap.add_argument("--host", default=os.environ.get("OLLAMA_HOST_URL", "http://localhost:11434"))
     ap.add_argument("--models", help="comma-separated model_key list")
     ap.add_argument("--priority", help="comma-separated priorities, e.g. P0,P1")
+    ap.add_argument("--country", help="only these countries, e.g. USA,France")
+    ap.add_argument("--exclude-country", help="skip these countries, e.g. China")
+    ap.add_argument("--bloc", help="only this bloc: US or Non-US")
     ap.add_argument("--concurrency", help="override Run_Config concurrency_sweep")
     ap.add_argument("--shapes", help="override Run_Config isl_osl_pairs, e.g. 2048/256,8192/1024")
     ap.add_argument("--repeats", type=int, help="override Run_Config measurement_repeats")
@@ -593,9 +603,13 @@ def main():
     cfg = sheet_io.load_run_config(args.workbook)
     only = set(parse_list(args.models)) if args.models else None
     prio = {p.upper() for p in parse_list(args.priority)} if args.priority else None
-    models = sheet_io.load_models(args.workbook, priority=prio, only=only)
+    models = sheet_io.load_models(
+        args.workbook, priority=prio, only=only,
+        countries=parse_list(args.country) or None,
+        exclude_countries=parse_list(args.exclude_country) or None,
+        blocs=parse_list(args.bloc) or None)
     if not models:
-        print("No models matched. Check --models / --priority against the Models sheet.")
+        print("No models matched. Check --models / --priority / --country against the Models sheet.")
         return 1
 
     ol = Ollama(args.host)

@@ -24,11 +24,14 @@ pip install openpyxl httpx
 | File | What it does |
 |---|---|
 | `build_workbook.py` | Generates the workbook from scratch. Edit parameters here, never in Excel. **Rebuilding destroys collected data.** |
-| `run_ollama_bench.py` | Pulls models through Ollama, runs the sweep, appends rows to `Perf_Results` |
+| `run_ollama_bench.py` | Speed. Pulls models through Ollama, runs the sweep, appends rows to `Perf_Results` |
+| `run_ollama_quality.py` | Accuracy. Scores models against `prompts/`, appends rows to `Quality_Results` |
+| `graders.py` | The nine deterministic graders |
+| `prompts/*.jsonl` | The test prompts, one suite per file |
 | `sheet_io.py` | Reads config and models, appends results. Shared by every runner |
 | `recalc_win.py` | Recalculates formulas through LibreOffice and reports any formula errors |
 | `dgx_llm_benchmark.xlsx` | The data. 10 sheets |
-| `results/*.jsonl` | Raw per-load-point records, written before Excel is touched |
+| `results/*.jsonl` | Raw records, written before Excel is touched |
 
 ## Quick start
 
@@ -197,6 +200,92 @@ evaluate. It does not prove they are right, so spot-check a row the first time.
 
 ---
 
+## Quality testing
+
+`Perf_Results` says how fast a model is. It says nothing about whether the model is any good.
+That is `run_ollama_quality.py`, scoring models against the prompt suites in `prompts/`.
+
+```bash
+python run_ollama_quality.py --list
+```
+
+```bash
+python run_ollama_quality.py --exclude-country China --suites reasoning,knowledge,extraction
+```
+
+```bash
+python run_ollama_quality.py --priority P0 --allow-code-exec --needle
+```
+
+### The suites
+
+| Suite | Prompts | Grader | Feeds |
+|---|---|---|---|
+| `reasoning` | 15 | `numeric`, `exact_match` | multi-step word problems, algebra, logic |
+| `knowledge` | 15 | `multiple_choice` | science, computing, geography, maths |
+| `coding` | 10 | `code_exec` | `pass_at_1`, via real unit tests |
+| `instruction_following` | 15 | `constraint_check` | `instruction_compliance_pct` |
+| `structured_output` | 12 | `json_schema` | `valid_json_rate_pct` |
+| `tool_calling` | 12 | `tool_call` | correct tool and well-formed arguments |
+| `extraction` | 12 | `exact_match` | grounded QA, plus `hallucination_rate_pct` |
+| `refusal` | 15 | `refusal_check` | `refusal_rate_pct` on benign prompts |
+| `long_context` | generated | `needle` | retrieval accuracy by length and depth |
+
+The prompts are written from scratch rather than lifted from MMLU, GSM8K or HumanEval. Those
+public sets are in the training data of nearly every model in the registry, so a high score there
+partly measures who memorised the test.
+
+### How scoring works
+
+Every grader is deterministic. No LLM judge is involved, which means no judge bias, no API cost,
+and identical scores when you re-grade the same outputs.
+
+- `numeric` pulls the last number from the answer and compares it within a tolerance
+- `multiple_choice` extracts the option letter from several common answer shapes
+- `json_schema` finds the first balanced JSON object even when the model wraps it in prose or a
+  code fence, then validates it against the schema and any required values
+- `constraint_check` runs programmatic checks: word counts, bullet counts, forbidden words,
+  casing, regex match. All constraints must hold for the prompt to score
+- `tool_call` compares the chosen tool and each expected argument
+- `needle` looks for a specific access code buried at a given depth in a long document
+- `refusal_check` scores 1 for answering. Every prompt in that suite is benign, so a refusal is a
+  false positive, not safety
+- `code_exec` writes the model's function plus a fixed test suite to a temp file and runs it
+
+### Long context
+
+The needle suite is generated rather than stored, because a 32k-token prompt has no business
+sitting in a JSONL file. Each combination of context length and needle depth becomes its own
+workbook row, so `Quality_Results` shows the degradation curve directly:
+
+```bash
+python run_ollama_quality.py --models phi-4 --suites long_context --needle-lengths 4000,16000,32000,64000 --needle-depths 0.1,0.5,0.9
+```
+
+A model that scores 100% at depth 0.1 and 40% at depth 0.5 is not really a long-context model,
+whatever its context window claims.
+
+### Code execution is off by default
+
+The `coding` suite runs Python that a model wrote. That is genuinely worth thinking about before
+you enable it on a shared machine. It requires `--allow-code-exec`, and even then each candidate
+runs in a subprocess with an isolated interpreter (`-I -S`), a temporary working directory and a
+timeout. Run it inside a container. Without the flag those prompts still execute against the
+model, and are recorded as ungraded rather than scored zero.
+
+### How many prompts you actually need
+
+These suites are a **screening set**, sized to eliminate obviously weak models cheaply. They are
+not large enough to rank close ones.
+
+At 15 prompts and a score near 70%, the 95% confidence interval is roughly ±22 points. At 100
+prompts it is about ±9. At 600 it is about ±4. The `score_ci95_halfwidth` column computes this
+for you from `score_stdev` and `n_samples × repeats`. If two models' intervals overlap, they are
+tied, and no amount of decimal places in `score_mean` changes that.
+
+Growing a suite is just appending lines to the relevant `prompts/*.jsonl`. Nothing in the code
+needs to change.
+
 ## Command reference
 
 ```bash
@@ -209,6 +298,9 @@ python run_ollama_bench.py --help
 | `--host` | `http://localhost:11434` | Ollama endpoint. Point it at the DGX to drive it remotely |
 | `--models` | all | Comma-separated `model_key` list |
 | `--priority` | all | Filter by the priority column, e.g. `P0,P1` |
+| `--country` | all | Only these countries, e.g. `USA,France` |
+| `--exclude-country` | none | Skip these countries, e.g. `China` |
+| `--bloc` | all | `US` or `Non-US` |
 | `--concurrency` | from Run_Config | e.g. `1,4,8,16,32` |
 | `--shapes` | from Run_Config | e.g. `2048/256,8192/1024` |
 | `--repeats` | from Run_Config | Repeats per load point |
@@ -222,6 +314,16 @@ python run_ollama_bench.py --help
 | `--dry-run` | off | Print the matrix and exit |
 | `--no-sheet` | off | Write JSONL only, leave Excel alone |
 | `--import-only FILE` | | Load an existing JSONL into the workbook |
+
+The same model-selection flags work on `run_ollama_quality.py`. To run everything except the
+Chinese labs:
+
+```bash
+python run_ollama_quality.py --exclude-country China
+```
+
+That filters at load time and leaves the `Models` registry untouched, so dropping the filter
+brings them back.
 
 ### Sizing a run
 
@@ -335,6 +437,7 @@ overwritten.
 ## Not built yet
 
 - `run_vllm_bench.py`, where the real DGX throughput numbers come from
-- Quality evaluation feeding `Quality_Results`, covering accuracy, instruction compliance, JSON
-  validity, refusal rate, long-context retrieval and per-language scores
 - An API runner for the closed models, so self-hosted cost can be compared against API pricing
+- Non-English suites. Every prompt is currently English, which structurally hides the advantage
+  that Qwen, Sarvam-M, Aya and SEA-LION are built for. The `language` field is already on every
+  prompt record and every workbook row, so adding a Hindi or Chinese suite needs no code change
