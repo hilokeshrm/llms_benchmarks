@@ -7,6 +7,15 @@ campaign with run_ollama_quality.py.
     python quick_ollama_test.py --models qwen3:32b --suites reasoning
     python quick_ollama_test.py --models qwen3:32b,llama3.3:70b --allow-code-exec
     python quick_ollama_test.py --models qwen3:32b --repeats 3 --concurrency 4
+    python quick_ollama_test.py --all-installed --exclude embed,vision
+
+SWEEPING EVERY MODEL
+  --all-installed takes whatever Ollama has locally, smallest first, so cheap
+  results land early and you can stop once the ranking is obvious. Set
+  OLLAMA_MAX_LOADED_MODELS=1 before serving, or Ollama keeps several models
+  resident and the later ones in the sweep fight for VRAM with the earlier ones.
+  Each model prints its own table as it finishes, and every raw item is flushed
+  to disk immediately, so an interrupted sweep keeps everything it had done.
 
 WHAT IT SHARES WITH THE MAIN RUNNER
   graders.py, and the prompts/*.jsonl format. Scores from this script and from
@@ -95,6 +104,15 @@ class Ollama:
         r = await client.get(f"{self.host}/api/tags", timeout=30.0)
         r.raise_for_status()
         return {m["name"] for m in r.json().get("models", [])}
+
+    async def tags_detail(self, client):
+        """[(name, size_gb)] sorted smallest first, so a sweep gets cheap results
+        early and you can stop it once the ranking is obvious."""
+        r = await client.get(f"{self.host}/api/tags", timeout=30.0)
+        r.raise_for_status()
+        out = [(m["name"], round((m.get("size") or 0) / 1e9, 1))
+               for m in r.json().get("models", [])]
+        return sorted(out, key=lambda x: x[1])
 
     async def chat(self, client, model, rec, temperature, seed):
         """One non-streaming completion. Ollama's own counters give real timings."""
@@ -270,6 +288,9 @@ def main():
     ap = argparse.ArgumentParser(description="Standalone Ollama quality runner.")
     ap.add_argument("--host", default=DEFAULT_HOST, help="Ollama endpoint")
     ap.add_argument("--models", help="comma-separated Ollama tags, e.g. qwen3:32b,llama3.3:70b")
+    ap.add_argument("--all-installed", action="store_true",
+                    help="every model Ollama has locally, smallest first")
+    ap.add_argument("--exclude", help="comma-separated substrings to skip, e.g. embed,vision")
     ap.add_argument("--prompt-dirs", default="prompts,prompts_extra",
                     help="comma-separated directories of *.jsonl")
     ap.add_argument("--suites", help="comma-separated suite names; default all")
@@ -310,25 +331,68 @@ def main():
         print("-" * 62)
         print(f"{'TOTAL':<26}{len(records)}")
         try:
-            tags = asyncio.run(_tags(ol))
-            print(f"\nmodels installed on {args.host}:")
-            for t in sorted(tags):
-                print(f"  {t}")
+            detail = asyncio.run(_tags_detail(ol))
+            print(f"\n{'model installed on ' + args.host:<44}{'size GB':>9}"
+                  f"{'est. min/sweep':>16}")
+            print("-" * 69)
+            for name, gb in detail:
+                # Rough: decode speed falls off roughly with weight size, and one
+                # sweep is len(records) prompts. Order of magnitude only.
+                est = max(1, round(len(records) * (0.35 + gb * 0.055) / max(1, 4)))
+                print(f"{name:<44}{gb:>9.1f}{est:>16}")
+            print("-" * 69)
+            print(f"{len(detail)} model(s), {sum(g for _, g in detail):.0f} GB on disk")
+            print("Estimates assume concurrency 4 and are a rough guide, not a promise.")
         except Exception as e:
             print(f"\ncould not reach Ollama at {args.host}: {e}")
         return 0
 
     if not records:
         raise SystemExit("No prompts matched. Check --prompt-dirs and --suites.")
-    if not args.models:
-        raise SystemExit("--models is required. Run --list to see what is installed.")
+    if not args.models and not args.all_installed:
+        raise SystemExit("Pass --models, or --all-installed to sweep everything Ollama has. "
+                         "Run --list to see what that would be.")
 
-    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    skip = [s.strip().lower() for s in (args.exclude or "").split(",") if s.strip()]
+
+    if args.all_installed:
+        # Needs the server by definition - there is no local list to read.
+        try:
+            detail = asyncio.run(_tags_detail(ol))
+        except Exception as e:
+            print(f"cannot reach Ollama at {args.host}: {e}")
+            print("start it with  ollama serve   (remote: OLLAMA_HOST=0.0.0.0 ollama serve)")
+            return 1
+        if not detail:
+            print(f"no models installed on {args.host}. Pull one first: ollama pull qwen3:32b")
+            return 1
+        models, dropped = [], []
+        for name, gb in detail:
+            if any(s in name.lower() for s in skip):
+                dropped.append(name)
+            else:
+                models.append(name)
+        print(f"\nsweeping {len(models)} installed model(s), smallest first:")
+        for name, gb in detail:
+            if name in models:
+                print(f"  {name:<44}{gb:>7.1f} GB")
+        if dropped:
+            print(f"excluded by --exclude: {', '.join(dropped)}")
+        if not models:
+            print("everything was excluded.")
+            return 1
+        installed = {n for n, _ in detail}
+    else:
+        models = [m.strip() for m in args.models.split(",") if m.strip()]
+        models = [m for m in models if not any(s in m.lower() for s in skip)]
+        installed = None
+
     total = len(models) * len(records) * args.repeats
     print(f"\n{len(models)} model(s) x {len(records)} prompts x {args.repeats} repeat(s) "
           f"= {total} requests at concurrency {args.concurrency}")
 
-    # Dry run stays offline on purpose, so you can size a campaign from a laptop.
+    # Dry run stays offline when models were named explicitly, so you can size a
+    # campaign from a laptop. With --all-installed the server was already needed.
     if args.dry_run:
         by = defaultdict(int)
         for r in records:
@@ -338,7 +402,8 @@ def main():
         return 0
 
     try:
-        installed = asyncio.run(_tags(ol))
+        if installed is None:
+            installed = asyncio.run(_tags(ol))
         missing = [m for m in models if m not in installed]
         if missing:
             print(f"\nnot installed on {args.host}: {', '.join(missing)}")
@@ -398,6 +463,11 @@ def main():
 async def _tags(ol):
     async with httpx.AsyncClient() as c:
         return await ol.tags(c)
+
+
+async def _tags_detail(ol):
+    async with httpx.AsyncClient() as c:
+        return await ol.tags_detail(c)
 
 
 if __name__ == "__main__":
